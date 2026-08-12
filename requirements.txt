@@ -1,0 +1,2 @@
+# Runtime dependency (image processing). Everything else is stdlib.
+pillow
