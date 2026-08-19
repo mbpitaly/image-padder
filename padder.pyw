@@ -1,8 +1,8 @@
 import os
 import time
 import tkinter as tk
-from tkinter import filedialog, ttk
-from PIL import Image
+from tkinter import filedialog, messagebox, ttk
+from PIL import Image, ImageOps
 
 def pad_photos():
     root = tk.Tk()
@@ -97,6 +97,7 @@ def pad_photos():
 
     os.makedirs(output_dir_val, exist_ok=True)
 
+    failed_files = []
     border_percent = 0.05
     max_pixels = 6000000
     total_files = len(file_paths)
@@ -120,10 +121,16 @@ def pad_photos():
 
         try:
             with Image.open(filepath) as img:
+                # Fix EXIF orientation before any geometry math (Pillow strips the tag)
+                img = ImageOps.exif_transpose(img)
                 exif = img.getexif()
-                
-                if img.mode in ('RGBA', 'P'):
-                    img = img.convert('RGB')
+
+                # Composite any transparency over white instead of dropping alpha to black
+                if img.mode in ('RGBA', 'LA', 'P'):
+                    rgba = img.convert('RGBA')
+                    img = Image.alpha_composite(
+                        Image.new('RGBA', rgba.size, (255, 255, 255, 255)), rgba
+                    ).convert('RGB')
 
                 w, h = img.size
 
@@ -160,12 +167,23 @@ def pad_photos():
 
                 padded_img.save(new_filepath, quality=85, exif=exif)
 
-        except Exception:
-            pass
+        except Exception as e:
+            failed_files.append((filename, str(e)))
 
         progress["value"] = i + 1
         lbl.config(text=f"Padding {i + 1} of {total_files} photos...")
         prog_win.update()
+
+    # --- Failure Summary ---
+    if failed_files:
+        details = "\n".join(f"• {n}: {err}" for n, err in failed_files[:6])
+        if len(failed_files) > 6:
+            details += f"\n… and {len(failed_files) - 6} more"
+        messagebox.showwarning(
+            "Some files failed",
+            f"{len(failed_files)} of {total_files} photos failed:\n\n{details}",
+            parent=prog_win
+        )
 
     # --- 1 Second Wait Sequence ---
     lbl.config(text="Done!")
